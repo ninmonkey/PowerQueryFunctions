@@ -9,7 +9,7 @@ let
         ]),
         model as (type text meta [
             Documentation.FieldCaption = "GPT Model",
-            Documentation.SampleValues = {"gpt-3.5-turbo"},
+            Documentation.AllowedValues = {"gpt-3.5-turbo"},
             Formatting.IsMultiLine = false,
             Formatting.IsCode = false
         ]),
@@ -37,6 +37,11 @@ let
             <p>The function,  constructs a request to the OpenAI API endpoint <code>https://api.openai.com/v1/chat/completions</code>.</p>
             <p>The request body includes a system message indicating the role of the responder, as well as the user's prompt. The API key is included in the request headers for authentication.</p>
             <p>Upon receiving the response from the API, the function extracts the content of the response message and returns it as the output.</p>
+
+            <p>See more:</p>
+            <ul>
+                <li><b>Models:</b> <code>https://platform.openai.com/docs/models/overview</code></li>
+            </ul>
         "
 
     ],
@@ -52,15 +57,15 @@ let
 
         2. If you replace the `baseUrl` variable with a `Report Parameter` -- I've heard it allows you to refresh some
             datasources that would normally error. Like SQL Server/instance names
+
+        see also: Wait-Retry pattern: <https://learn.microsoft.com/en-us/power-query/wait-retry>
         */
         returnExtraContext = true,
         baseUrl = "https://api.openai.com",
         requestOptions = [
             RelativePath = "/v1/chat/completions",
-            Headers = Headers,
-            Content = payload,
-            // Query = [],
-            // see: <https://learn.microsoft.com/en-us/power-query/wait-retry#putting-it-all-together>
+            Headers      = Headers,
+            Content      = Json.FromValue( promptsPayload, TextEncoding.Utf8 ),
             // Timeout = #duration(0, 0, 0, 30),
             // IsRetry = ,
             ManualStatusHandling = { 400, 404, 408, 429, 500, 503, 504, 509 }
@@ -69,8 +74,7 @@ let
             #"Content-Type" = "application/json",
             Authorization = "Bearer " & apiKey
         ],
-        payload =  Json.FromValue( prompts, TextEncoding.Utf8 ),
-        prompts = [
+        promptsPayload = [
             model = model,
             messages = {
                 [   role = "system",
@@ -81,19 +85,24 @@ let
             }
         ],
         /*
-        tip: If you split a `Json.Document( Web.Contents( ... ))` call into two steps, you get access
-        you get additional information about the request.
-        You can handle web APIs that switch content types.
-        Some web APIS will switch to html when the API has an error
+        tip: If you split a `Json.Document( Web.Contents( ... ))` call into two steps, you get access to to additional
+        information about the request. HTTP status codes, response headers, the full request URL, and more.
 
-        */
-        // It also lets you support an API call that switches between json and html when it responds.
+        And it lets you handle APIs that switch content types.
+        Some APIs return data as JSON, but switch to HTML when reporting errors.
+
+        `RawText` is useful when debugging because it lets you read any response as text.
+        For example if it returns `xml`. The `Json` field will have an exception
+        But you can view the `RawText` of that `xml` response as plain text
+
+        It also lets you support an API call that switches between json and html when it responds.
         // some web APIs return errors as html, rather than json
         // response is type: `binary`
         // keeping a reference fcreate a referece to the raw web requestresponse is the type `binary`
         // it's a reference to the raw bytes returned from the web request. It'sgives you a extra  a reference to the raw bytes returned from the web request.
         // response is the raw bytes from the request, type is: `binary`
 
+        */
         // Source = Json.Document(Web.Contents(baseUrl, [
         //     Headers = Headers,
         //     Content = Text.ToBinary(body)
@@ -106,26 +115,15 @@ let
             Json         = Json.Document( Bytes ),
             IsJson       = not ( try Json )[HasError],
             RawText      = Text.FromBinary( response, TextEncoding.Utf8 ),
+            SizeBytes    = Binary.Length( Bytes ),
+            // drill into [Meta] for more info. include a few properties at the top level
             StatusCode   = Meta[Response.Status],
             RequestUrl   = Meta[Content.Uri](),
-            SizeBytes    = Binary.Length( Bytes ),
             Content.Type = Meta[Content.Type]
         ],
-        SourceJson = Response[Json],
-        SourceWithContext = Response,
-        body1 = "{
-            ""model"": """ & model & """,
-            ""messages"": [
-                {
-                    ""role"": ""system"",
-                    ""content"": ""You are a Power Query expert, your role is to respond with meaningful explanations and full code""
-                },
-                {
-                    ""role"": ""user"",
-                    ""content"": """ & prompt & """
-                }
-            ]
-        }"
+        SourceBasic = Response[Json],
+        SourceWithContext = Response
+
 
         // API key and headers configuration. Remember to replace {Your API Key} with your actual API key.
         // Execute the web request and parse the JSON response.
@@ -136,7 +134,7 @@ let
         // Response = Source[choices]{0}[message][content]
     in
 
-        if returnExtraContext then SourceWithContext else Source
+        if returnExtraContext then SourceWithContext else SourceBasic
 in
     // Apply the function metadata to the MGPT function.
     Value.ReplaceType(MGPT, metaDocumentation)
