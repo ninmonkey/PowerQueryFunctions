@@ -107,7 +107,6 @@ let
         //     Headers = Headers,
         //     Content = Text.ToBinary(body)
         // ])),
-        withInfo = Value.Metadata( response ),
         response = Web.Contents( baseUrl, requestOptions ),
         Response = [
             Bytes        = response,
@@ -116,6 +115,7 @@ let
             IsJson       = not ( try Json )[HasError],
             RawText      = Text.FromBinary( response, TextEncoding.Utf8 ),
             SizeBytes    = Binary.Length( Bytes ),
+            Completion   = Json[choices]{0}[message][content], // you could use `??` for a 'fallback'
             // drill into [Meta] for more info. include a few properties at the top level
             StatusCode   = Meta[Response.Status],
             RequestUrl   = Meta[Content.Uri](),
